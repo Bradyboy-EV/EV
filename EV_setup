@@ -1,0 +1,81 @@
+function results = setupSimVehicle
+    global cell module pack motor drivetrain vehicle cycle results 
+    files = {'nycc.txt','udds.txt','us06col.txt','hwycol.txt'};
+cell = setupCell(15,450,4.2,3.8,3.0);
+module = setupModule(3,8,0.08,cell);
+pack = setupPack(12,0.1,75,25,0.96,module);
+motor = setupMotor(275,4000,12000,0.95,0.2);
+wheel = setupWheel(0.35,8,0.0111);
+drivetrain = setupDrivetrain(0.94,0.9,12,0.05,0.97,pack,motor,wheel);
+vehicle = setupVehicle(4,0,0.22,1.84,1425,75,200,drivetrain);
+    fprintf('\n\nStarting sims...\n');
+    for theCycle = 1:length(files),
+      cycle = dlmread(files{theCycle},'\t',2,0);
+      results = simVehicle(vehicle,cycle,0.3);
+      range = (vehicle.drivetrain.pack.socFull - ...
+               vehicle.drivetrain.pack.socEmpty) /...
+              (vehicle.drivetrain.pack.socFull - ...
+                 results.batterySOC(end)) * ...
+              results.distance(end);
+      fprintf('Cycle = %s, range = %6.1f [km]\n',files{theCycle},range);
+    end
+end
+function cell = setupCell(capacity,weight,vmax,vnom,vmin) cell.capacity = capacity; % ampere hours
+cell.weight = weight; % grams
+cell.vmax = vmax; % volts
+cell.vnom = vnom; % volts
+cell.vmin = vmin; % volts
+cell.energy = vnom * capacity; % Watt-hours cell.specificEnergy = 1000 * cell.capacity * cell.vnom/ ...
+cell.weight; % Wh/kg
+end
+  function module = setupModule(numParallel,numSeries,overhead,cell)
+    module.numParallel = numParallel;
+    module.numSeries = numSeries;
+    module.overhead = overhead;
+module.cell = cell;
+module.numCells = numParallel * numSeries;
+module.capacity = numParallel * cell.capacity;
+module.weight = module.numCells * cell.weight * 1/(1 - overhead)/1000; %
+kg
+module.energy = module.numCells * cell.energy/1000; % kWh module.specificEnergy = 1000 * module.energy / module.weight; % Wh/kg
+end
+  function pack = setupPack(numSeries,overhead,socFull,socEmpty,...
+                            efficiency,module)
+pack.numSeries = numSeries;
+pack.overhead = overhead;
+pack.module = module;
+pack.socFull = socFull;
+pack.socEmpty = socEmpty; % unitless
+pack.efficiency = efficiency; % unitless, captures I*I*R losses pack.numCells = module.numCells * numSeries;
+pack.weight = module.weight * numSeries * 1/(1 - overhead); % kg pack.energy = module.energy * numSeries; % kWh pack.specificEnergy = 1000 * pack.energy / pack.weight; % Wh/kg
+ pack.vmax = numSeries*module.numSeries*module.cell.vmax;
+    pack.vnom = numSeries*module.numSeries*module.cell.vnom;
+    pack.vmin = numSeries*module.numSeries*module.cell.vmin;
+end
+function motor = setupMotor(Lmax,RPMrated,RPMmax,efficiency,inertia) motor.Lmax = Lmax; % N-m
+motor.RPMrated = RPMrated;
+motor.RPMmax = RPMmax;
+motor.efficiency = efficiency;
+motor.inertia = inertia; 
+motor.maxPower = 2*pi*Lmax*RPMrated/60000; % kW
+end
+function wheel = setupWheel(radius,inertia,rollCoef) wheel.radius = radius; % m
+wheel.inertia = inertia;
+wheel.rollCoef = rollCoef;
+end
+function drivetrain = setupDrivetrain(inverterEfficiency,regenTorque,... gearRatio,gearInertia,gearEfficiency,pack,motor,wheel)
+drivetrain.inverterEfficiency = inverterEfficiency;
+drivetrain.regenTorque = regenTorque;
+drivetrain.pack = pack;
+drivetrain.motor = motor;
+drivetrain.wheel = wheel;
+drivetrain.gearRatio = gearRatio;
+drivetrain.gearInertia = gearInertia; % kg-m2, measured on motor side drivetrain.gearEfficiency = gearEfficiency;
+drivetrain.efficiency = pack.efficiency * inverterEfficiency * ...
+                            motor.efficiency * gearEfficiency;
+end
+  function vehicle = setupVehicle(wheels,roadForce,Cd,A,weight,payload,
+   overheadPwr,drivetrain)
+vehicle.drivetrain = drivetrain; 
+vehicle.wheels = wheels;
+vehicle.roadForce = roadForce; % N
